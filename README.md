@@ -2,6 +2,12 @@
 
 This is a holding repository for all upcoming talks and proposals.
 
+## Upcoming Talks
+
+| Conference | Title | City | Date |
+| ---------- | ----- | ---- | ---- |
+| [KubeCon EU](https://events.linuxfoundation.org/events/kubecon-cloudnativecon-europe-2018/) |  Write Less Code, Use More Tools: How we Orchestrate 7M+ Builds/Month with Kubernetes + Nomad | Copenhagen | May 2 - 4 |
+
 ## Process
 
 1) Write an abstract
