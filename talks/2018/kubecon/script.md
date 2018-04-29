@@ -1,4 +1,4 @@
-footer: KubeCon EU - @dantoml [she/her]
+footer: KubeCon EU - @dantoml [she/her] 🌈
 slidenumbers: true
 
 ## Write Less __Code__,
@@ -10,7 +10,7 @@ slidenumbers: true
 ## $ whoami
 
 ^
-Hey, I'm Dani. I'm a Staff Software Engineer working on build infrastructure at CircleCI. I also maintain some open source tools used by a lot of mobile developers, CocoaPods, and Fastlane.
+Hey, I'm Dani. I live in Berlin, and I'm a Staff Software Engineer on the build execution team at CircleCI. I'm also a maintainer of CocoaPods, a dependency manager for Cocoa applications, and fastlane, build and release automation tooling for mobile engineers.
 
 ---
 [.background-color: #212121]
@@ -18,7 +18,7 @@ Hey, I'm Dani. I'm a Staff Software Engineer working on build infrastructure at 
 ![50%](https://assets.brandfolder.com/otz73u-2kwjjs-3sbkgf/original/circle-logo-horizontal-white.png)
 
 ^
-For those of you who haven't heard about CircleCI before, CircleCI is a continous integration and delivery platform with first class support for Docker, macOS, and Linux VMs.
+For those of you who haven't heard about CircleCI before, CircleCI is a continuous integration and delivery platform with first class support for Docker, macOS, and Linux VMs.
 {{should elaborate here, but don't wanna spend more than a little bit of time on this}}
 
 ---
@@ -26,10 +26,15 @@ For those of you who haven't heard about CircleCI before, CircleCI is a continou
 
 ## What am I covering?
 
-- Why did we replatform
-- What technology choices we made
-- The issues we faced in production
-- How we solved them
+- Why we replatformed
+- Why we chose to run Kubernetes and Nomad
+- How our deployment has evolved
+
+^
+- So what am I going to cover in this talk? [click]
+- I'm going to start out by covering why we decided to replatform our infra [click]
+- I'm then going to talk about why we specifically chose to use Nomad and Kubernetes [click]
+- And then I'm going to talk about how our deployment has evolved, in a series of post-mortems that show some of the barriers we faced, and importantly, how we managed to overcome them.
 
 ---
 
@@ -64,7 +69,7 @@ We could see where our own and the wider industries requirements around CI/CD we
 We eventually decided that our best option was to re-platform our core infrastructure, to allow us to service these ever changing needs.
 
 ^
-Replatforming is terrifying, it's a lot of work. You're trying to rebuild a better version of an existing product - and you have to work without the guidance of constant customer feedback and validation. 
+Replatforming is terrifying, it's a lot of work. You're trying to rebuild a better version of an existing product - and you have to work without the guidance of constant customer feedback and validation. Our customers were also scared, because it looked like we weren't really developing new features any more.
 
 ^
 However, you have the advantage of existing domain knowledge and understanding of what you need to get from your new infrastructure, and the lessons of past experiences in what did not work as we scaled.
@@ -167,7 +172,7 @@ This results in a job scheduler that is incredibly fast.
 ## Pluggable
 
 ^
-Nomad's executor is also quite pluggable, with built in support for running various container technologies, or simply executing a binary in place, allowing us to precisely control how we execute our customer jobs - this is incredibly useful for us and our goals. 
+Nomad's executor is also quite pluggable, with built in support for running various container technologies, or simply executing a binary in place, allowing us to precisely control how we execute our customer jobs - this is an incredibly useful facility for us.
 
 ---
 
@@ -175,7 +180,7 @@ Nomad's executor is also quite pluggable, with built in support for running vari
 ## Cooperative API
 
 ^
-It also exposes much of its functionality and state through a rest and rpc api. This is both great for building out our scheduling capabilities, but also really useful for building out tools on top and around nomad to augment its capabilities with our own needs, when things would not necessarily be suitable for upstream use.
+It also exposes much of its functionality and state through a rest and rpc api. This is both great for building out our scheduling capabilities, but also really useful for building out tools on top and around nomad to augment its capabilities with our own needs, when things would not necessarily be suitable for upstreaming.
 
 ---
 
@@ -202,7 +207,7 @@ Because of our desire for strong isolation for builds and internal services howe
 ## One size doesn't fit all?
 
 ^
-We realised that we could use other tools to run our services and infrastructure, to leverage those tools, without tying us in to any particular toolset over time. So we started looking into other orchestrators - we still didn't want to operationalise Mesos, and eventually we settled on Kubernetes.
+We realised that we could use other tools to run our services and infrastructure, to leverage those tools, without tying us in to any particular toolset over time, and to allow us to fix our issues and concerns. So we started looking into other orchestrators - we still didn't want to operationalise Mesos, and eventually we settled on Kubernetes.
 
 ---
 
@@ -223,7 +228,7 @@ The lifespan and adoption of a tool give us confidence that others have encounte
 A big part of why we didn't use Mesos was that a lot of its operational knowledge was locked down in the silos of large enterprises - and nobody on our team already knew how to use it, and filling in those gaps without a community would've been an impossible mountain.
 
 ^
-The ecosystemm and community of kubernetes gave us the confidence we needed to push for its use and ship it to production.
+The ecosystem and community of kubernetes gave us the confidence we needed to push for its use and ship it to production.
 
 --- 
 
@@ -231,76 +236,177 @@ The ecosystemm and community of kubernetes gave us the confidence we needed to p
 ## Rolling Updates and Readiness Checks
 
 ^
-The kubernetes support for rolling deployments with readiness checking was also incredibly valuable to us - we continuously deliver all of our software, and testing isn't perfect. Knowing that if you push a bad config change, your service will crash, and not be rolled out to all of the pods is incredibly warm. And in the case of running a stateful service like nomad, it allows you to maintain quorum during deployments, which was one of the more frustrating issues during our nomad testing phases.
+The kubernetes support for rolling deployments with readiness checking was also incredibly valuable to us.
+We continuously deliver all of our software, and regardless of how much you test a service, knowing that if you push a bad config change, your service will crash, and not be rolled out to all of the pods is incredibly warm.
+And in the case of running a stateful service like nomad, it also allows you to maintain quorum during deployments, which was one of the more frustrating issues during our nomad testing phases.
 
 ---
 
 ## Nomad is __part__ of our product
 
 ^
-Nomad is an important part of running builds in 2.0, and it ships to both our on premise product and in cloud. It's where the majority of our builds execute, and gives us much of the flexibility we need to do that and build out new functionality.
+We ultimately made an important distinction - Nomad is part of our product. It is an important part of running builds in 2.0, and it ships to both our on-premise product and in our SaaS offering. It's where the majority of our builds execute, and gives us much of the flexibility we need to do that and build out new functionality.
 
 ---
 
 ## Kubernetes is for __scaling__ our product
 
 ^
-Kubernetes is the platform that we use to build out operationalize our platform. It lets us  <blah blah?>
+Kubernetes is the platform that we use to build out and to operationalize our product. We leverage its features to allow us to run our application layer services, and product infrastructure.
 
 ---
 
-## So how did this work?
+## So how does this work?
 
 ^
-So now we know the basic tools at our disposal, lets take a look at how this initially worked, and then let's talk about some of the problems we ran into, and how we solved them.
+So now we know the basic tools at our disposal, lets take a look at how we set this up, and explore some of the things that did not necessarily work so well for us and how we leveraged the tools to fix them.
 
 ---
 
-### terraform, terraform, terraform
+## scheduler
+## __inside__ 
+## a scheduler
 
 ^
-We deploy all of our persistent infrastructure with terraform, this is no different for our kubernetes clusters. It gives us great visibility into how and why every change into our infrastrucutre was made, 
+From an operations perspective, nomad is comprised of two main components, the nomad server, which is the nomad control plane, and nomad-clients, which execute the jobs provided by the nomad server. We run the nomad servers with kubernetes, and the clients are external. And for us, a nomad deployment also has some auxiliary services that exist to integrate Nomad with the rest of our domain, monitoring, and some amount of ops automation.
 
 ---
 
-## nomad-server Kubernetes Nodes
+## nomad-__server__
+
+^
+Nomad is an inherently stateful service, built on top of raft for handling log replication, and with a couple of different persistence options. Nomad requires some form of service discovery for initial cluster bootstrapping, after which a gossip protocol takes over with HashiCorp Serf.
 
 ---
 
-## `$ kubectl apply`
+### Nomad
+## Persistence
+
+^
+We handle nomad storage by having dedicated kubernetes clients for nomad server workloads, which we then bind mount the host storage of into a nomad server container. This allows us to leverage our existing ability to manage hosts, use EBS for recovery, and <<TODO FINISH>>
 
 ---
 
-## nomad-drainer
+### Nomad
+## Service Discovery
+
 
 ---
 
-Services deploy with helm
+## Consul
+
+^
+HashiCorp reccomend using Consul for Nomad service discovery, and it works reasonably well, with relatively little overhead to get setup and configure, and is pretty stable when running.
 
 ---
 
-Service layer deployed with helm
+## Multiple clusters
+
+^
+However when we started expanding our nomad requirements to support multiple clusters, we found we were using the same consul cluster to handle multiple deployments, and lead ourselves into maintaining a bit of a single purpose snowflake cluster, so we eventually decided to look into alternatives.
 
 ---
 
-Includes our auxillary services
+## Kubernetes + StatefulSet
+
+^
+We eventually switched Nomad into using a Kubernetes StatefulSet, which gave us more predictable upgrade semantics, and allowed us to migrate to doing all of our nomad service discovery inside kubernetes.
 
 ---
 
-Autoscaler
+## nomad-__clients__
 
 ---
 
-Garbage Collector
+## Scaling Clients
 
 ---
 
-Metrics
+### Scaling
+## Autoscaler
 
 ---
 
-## __thanks__.
+## Health Checks
 
+^
+- We run an agent on nomad-clients that validates that nomad is up, the docker engine is responsive, and that the internet is reachable.
+- Sends metrics wrt health
+
+---
+
+## Draining Clients
+
+^
+- Originally no way to not re-schedule jobs out of the box
+- We patched nomad to support this for our use case
+- Tied into AWS asg hooks, and disable draining for the client
+- Nomad added support for this in 0.8 release last week
+
+---
+
+## What have we learnt?
+
+^
+I would like to start out by saying that nomad is a really great tool, and Alex and the nomad team are incredibly receptive to hearning about issues that you run into. They've worked on fixes for, or roadmapped features for manny of the things that we've run into, and are a super friendly crowd.
+That said, I'm now going to walk through our biggest build system outages, talk about some of their contributing factors, and what we learned from them.
+
+---
+
+## Incident __#1__
+
+^
+The first major nomad outage we experienced was an interesting
+
+---
+
+
+  |- nomad bankruptcy
+
+---
+
+- added metrics
+
+---
+
+## Incident __#2__
+
+^
+- second incident
+  |- nomad bankruptcy
+
+---
+
+- more exploration of the data
+  |- lots of failed job deletions
+  |- high dead job counts
+  |- would try to delete the same job ~70 times
+
+---
+
+- noticed it was happening in garbage collection
+  |- reduced gc duration
+  |- saw that things were generally better
+  |- system would still stop scheduling for ~30s - 1min every gc cycle
+
+---
+
+- packaging nomad
+
+---
+
+## Incident __#3__
+
+^
+- third incident
+  |- nomad-gc
+
+---
+
+- stable for several months
+
+---
+
+## __thank you__.
 ### @dantoml
-
 
