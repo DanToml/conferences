@@ -93,11 +93,11 @@ On 2.0, alongside wanting to support containerized builds, we also wanted to be 
 ---
 
 ### Build Infrastructure
-## LXC
+## LXC and Pluggability
 
 ^
 Over the years, we’ve become pretty adept at managing the nuances of LXC and its tools — we know what output they generate, and we understand the edge cases. The platform team wanted to capitalize on that expertise by picking a tool that shared many of these qualities.
-We also didn't want to necessarily be tied in to any given technology or abstraction for this however.
+We also didn't want to necessarily be tied in to any given technology or abstraction for this however, because we don't just schedule builds inside containers - We also provide support for running full linux or macOS virtual machines.
 
 ---
 
@@ -105,8 +105,10 @@ We also didn't want to necessarily be tied in to any given technology or abstrac
 ## Fast Scheduling
 
 ^
-At our peak, and when recovering from outages, we push thousands of jobs per minute, and although it's unlikely to be the bottleneck of our critical path, many schedulers cannot handle running large volumes of short lived batch jobs.
-They often break down due to overretention of data, or get bogged down with functionality that only really make sense if you are scheduling long running services.
+At our peak we push thousands of jobs per minute, and although it's rarely the bottleneck of our critical patch, many schedulers cannot handle running large volumes of short lived batch jobs.
+
+^
+Many job schedulers that are primarily designed for running services or long running processing tasks tend to have fairly slow schedulers that optimise for finding the optimal placement for a given task, usually by trying to find the best fit from a large pool of the available placement nodes. These types of scheduling algorithms tend to become quite slow when scheduling a large number of tasks on a large cluster of worker nodes.
 
 ---
 
@@ -159,11 +161,7 @@ We already use a bunch of the Hashicorp stack, provisioning our infrastructure w
 ## Great at batch jobs
 
 ^
-Many job schedulers that are primarily designed for running services or long running processing tasks tend to have fairly slow schedulers that optimise for finding the optimal placement for a given task, usually by trying to find the best fit from a large pool of the available placement nodes.
-However, these types of scheduling algorithms tend to become quite slow when scheduling a large number of tasks on a large cluster of worker nodes.
-When you're scheduling short lived batch jobs, past a certain point the optimality of placement is often less important.
-Nomad's batch scheduler uses an implementation based on the Berkley Sparrow scheduler, that applies the power of two choices load balancing technique to job scheduling.
-This results in a job scheduler that is incredibly fast.
+Unlike many orchestrators, nomad can choose between multiple scheduling algorithms, and for batch jobs uses an algorithm based on the Berkley Sparrow scheduler, that applies the power of two choices load balancing technique to job scheduling. This results in a job scheduler that is incredibly fast.
 
 ---
 
@@ -251,7 +249,7 @@ We ultimately made an important distinction - Nomad is part of our product. It i
 ## Kubernetes is for __scaling__ our product
 
 ^
-Kubernetes is the platform that we use to build out and to operationalize our product. We leverage its features to allow us to run our application layer services, and product infrastructure.
+Kubernetes is the platform that we use to build out and to operationalize our product. We leverage its features to allow us to run our application layer services - and to provide abstractions and automation over our other cloud resources.
 
 ---
 
@@ -405,7 +403,23 @@ The next day we were once again greeted by a rising job queue, but this time, we
 ## Analysis
 
 ^
-When analyzing the data we'd collected, we eventually realized that the issue was occuring during garbage collection, where nomad will cycle through its completed jobs, and remove them from the database.
+When analyzing the data we'd collected, we eventually realized that the issue was occuring during garbage collection cycles, where nomad will cycle through its completed jobs, and remove them from the database.
+
+---
+
+```go
+for _, job := range gcJob {
+		req := structs.JobDeregisterRequest{
+			JobID: job.ID,
+			Purge: true,
+    }
+    ...
+}
+```
+
+^
+The original implementation of garbage collection in Nomad would iterate over every job that needed to be garbage collected, and issued a JobDeregister request, which would take a slot in the raft log, which would need to be applied to the finite state machine.
+Each of these requests would then call out to the current nomad leader, and block until the deletion had been applied. Which was not ideal when several hundred thousand jobs would need to be deregistered at once.
 
 ---
 
@@ -413,52 +427,57 @@ When analyzing the data we'd collected, we eventually realized that the issue wa
 
 ^
 We initially tried reducing the cooldown for GC from the default 4 hours, down to about 30 minutes, which resulted in much more stable behaviour. However it wasn't quite perfect, around our peak times, scheduling would halt for a a few seconds every gc cycle, which was just slow enough to trip our pending jobs alerts.
-We continued to investigate the design of the nomad garbage collector, and eventually noticed something interesting in the logs - it was trying to delete some jobs more than 70 times.
 
 ---
 
 ## `nomad-gc`
 
 ^
-Eventually we found that we couldn't configure the garbage collector in a way that would work for our usage pattern, and that we'd need to work with the nomad team to find an adjust the design of the collector.
-Because we only really use the nomad api to inspect jobs that have failed, or during incidents, we don't really need to keep jobs in a successful terminal state around, so we wrote a small sidecar service that uses the nomad api to continuously collect successful dead jobs, and we use the built in collector as a failsafe and collector for allocations and evaluations.
+Because we only really use the nomad api to inspect jobs that have failed, or during incidents, we don't really need to keep jobs in a successful terminal state around, so we wrote a small sidecar service that uses the nomad api to continuously collect successful dead jobs, and we use the built in collector as a failsafe in case that our service is unavailable, or cannot reach the nomad api.
 This has resulted in signficiantly more stable operation and was signficiantly easier to deploy through our usage of kubernetes to orchestrate nomad.
+
+---
+
+## Nomad 0.8
+
+^
+The latest version of nomad now actually uses a batched deletion request which should drastically improve performance under these types of workloads, and I'm excited to begin testing that soon.
 
 ---
 
 ## Multi-Cluster
 
 ^
-At around the same time, we went from running a single nomad cluster, to running multiple clusters. This changed a little bit of how we deploy them to kubernetes. 
+At around the same time, we went from running a single nomad cluster, to running multiple clusters. This changed a little bit of how we deploy them, and how we integrate with kubernetes. 
 
 ---
 
-## Service Discovery
+## Terraform, terraform, terraform
 
 ^
-I already mentioned that when we moved to multiple clusters we migrated to using kubernetes for service discovery
-
----
-
-## Namespaces!
-
-^
-Part of doing this was using a k8s namespace for each individual deployment, which allows us to group all of the related resources, simplifies the deployment structure, and allows us to use k8s dns to reference all of the related resources pretty simply.
+We deploy almost all of our infrastructure using terraform, because it gives us great visibility into changes to our deployment, and allows us to reason about and easily change our configuration.
+One of the first steps in migrating to a multi cluster deployment was to modularlise our terraform to allow us to easily create multiple downstream clusters with a minimal amount of duplication.
 
 ---
 
 ## 💜 Helm
 
 ^
-We actually package the entire deployment, alongside the gc, drainer, metrics generator, etc into a single helm package. This has been really useful for both sharing configuration, and making it easy to deploy and upgrade clusters not only when we have a working platform for CD, but also if CircleCI is down and we need to manually bootstrap a new cluster.
+We then migrated our kubernetes manifests to helm. We actually package the entire deployment, alongside the gc, drainer, metrics generator, etc into a single helm package. This makes it reasonably simple to be able to both CD changes, while also being able to manually deploy a cluster if the platform is unavailable, or when working in a development cluster.
 
 ---
 
-## Terraform
+## Namespaces
 
 ^
-We also use terraform to provision all of our virtualized infrastructure, including the hosts we use for nomad-servers, and the nomad-client autoscaling groups and IAM credentials. We abstract much of the repeated infrastrucutre into modules, to simplify the deployment and configuration of new clusters.
-This makes deploying a new cluster as easy as terraforming the server nodes, installing our helm package to reference the correct cluster, and terraforming the clients.
+We then deploy each cluster to its own namespace in kubernetes, which acts as a neat grouping mechanism for all of the related services, allows us to easily manage an individual cluster, and acts as a good isolation boundary for services that want to talk to nomad.
+
+---
+
+## Service Discovery
+
+^
+The use of kubernetes namespaces, alongside with a stateful set for kubernetes also makes it much easier to handle both auxillary services to discover their related nomad deployment, and also for nomad servers to discover each other via kubernetes, as they have determensitic DNS names provided by the stateful set, and after an initial connection, Serf takes over.
 
 ---
 
