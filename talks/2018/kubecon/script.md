@@ -19,7 +19,6 @@ Hey, I'm Dani. I live in Berlin, and I'm a Staff Software Engineer on the build 
 
 ^
 For those of you who haven't heard about CircleCI before, CircleCI is a continuous integration and delivery platform with first class support for Docker, macOS, and Linux VMs.
-{{should elaborate here, but don't wanna spend more than a little bit of time on this}}
 
 ---
 [.build-lists: true]
@@ -283,130 +282,194 @@ Nomad is an inherently stateful service, built on top of raft for handling log r
 ## Persistence
 
 ^
-We handle nomad storage by having dedicated kubernetes clients for nomad server workloads, which we then bind mount the host storage of into a nomad server container. This allows us to leverage our existing ability to manage hosts, use EBS for recovery, and <<TODO FINISH>>
+We handle nomad storage by having dedicated kubernetes clients for nomad server workloads, which we then mount the host storage of into a nomad server container. This allows us to leverage our existing practices for managing persistent services and simplifies our kubernetes configuration.
 
 ---
 
 ### Nomad
 ## Service Discovery
 
+^
+Because nomad is a distributed stateful service, it also requires some way to do discovery of other server nodes, and there are a few different ways in which we can do this.
 
 ---
 
 ## Consul
 
 ^
-HashiCorp reccomend using Consul for Nomad service discovery, and it works reasonably well, with relatively little overhead to get setup and configure, and is pretty stable when running.
+HashiCorp recommend using Consul for Nomad service discovery, and it works reasonably well, with relatively little overhead to get setup and configure, and is a very stable piece of software. However, we initially set up Consul as a little bit of a snowflake cluster for our initial nomad deployment, and it was not running within kubernetes.
 
 ---
 
 ## Multiple clusters
 
 ^
-However when we started expanding our nomad requirements to support multiple clusters, we found we were using the same consul cluster to handle multiple deployments, and lead ourselves into maintaining a bit of a single purpose snowflake cluster, so we eventually decided to look into alternatives.
+So when we started expanding our nomad requirements to support multiple clusters, we found we were initially using the same Consul cluster for multiple deployments of Nomad, which, when it comes to minimising shared dependencies and isolating clusters was not an ideal situation, so we started evaluating alternatives, before trying to deploy another stateful service to kubernetes.
 
 ---
 
 ## Kubernetes + StatefulSet
 
 ^
-We eventually switched Nomad into using a Kubernetes StatefulSet, which gave us more predictable upgrade semantics, and allowed us to migrate to doing all of our nomad service discovery inside kubernetes.
+We eventually decided on switching Nomad into using a Kubernetes StatefulSet, which gave us more predictable upgrade semantics, and also allowed us to do our initial nomad server bootstrapping using kubernetes for service discovery.
 
 ---
 
 ## nomad-__clients__
 
+^
+Nomad clients are where jobs actually execute, and these don't run inside kubernetes, but instead within an AWS AutoScaling Group.
+
 ---
 
 ## Scaling Clients
 
----
-
-### Scaling
-## Autoscaler
-
----
-
-## Health Checks
-
 ^
-- We run an agent on nomad-clients that validates that nomad is up, the docker engine is responsive, and that the internet is reachable.
-- Sends metrics wrt health
+We scale clients with a fairly simple autoscaler that runs in Kubernetes, and this is driven by our metrics around available capacity, and is easy to shutdown or override when we want to over provision for expected spikes when recovering from backlogs that occur during incidents or when cutting over to a new cluster.
 
 ---
 
 ## Draining Clients
 
 ^
-- Originally no way to not re-schedule jobs out of the box
-- We patched nomad to support this for our use case
-- Tied into AWS asg hooks, and disable draining for the client
-- Nomad added support for this in 0.8 release last week
+We originally used a patched version of nomad to support draining clients without rescheduling jobs on other nodes - and a nomad draining service that consumes the aws lifecycle hooks to enable and disable draining as required.
+Nomad 0.8 adds first class support for controlling the drain behaviour of clients, and as we start our testing and upgrades, it is fairly simple to update our drainer to use the first class API for this.
+
+---
+
+## Health Checks
+
+^
+We run an agent on nomad-clients that validates that nomad is up, the status of the docker engine, and the internet reachability.
+This then reports to both statsd and the aws health checking, so that we can automatically drain and remove unhealthy nodes without manual intervention.
 
 ---
 
 ## What have we learnt?
 
 ^
-I would like to start out by saying that nomad is a really great tool, and Alex and the nomad team are incredibly receptive to hearning about issues that you run into. They've worked on fixes for, or roadmapped features for manny of the things that we've run into, and are a super friendly crowd.
-That said, I'm now going to walk through our biggest build system outages, talk about some of their contributing factors, and what we learned from them.
+I would like to start out by saying that nomad is a really great tool, and Alex and the nomad team are incredibly receptive to hearing about issues that you run into. They've worked on fixes for, or roadmapped features for many of the things that we've experienced, and are a super friendly crowd.
+Nomad is however still very young, and we've augmented lots of its more unfinished behaviour with kubernetes while we work on more long term fixes for some of the problems. 
 
 ---
 
-## Incident __#1__
+## Managing __outages__
+
+![120%](/Users/danielle/Desktop/Screen Shot 2018-04-30 at 13.23.47.png)
 
 ^
-The first major nomad outage we experienced was an interesting
+The first major set of production nomad outages we experienced was in January, and taught us a lot both about some less obvious behaviour in nomad, and resulted in some changes to how we deploy our clusters to kubernetes.
 
 ---
 
-
-  |- nomad bankruptcy
-
----
-
-- added metrics
-
----
-
-## Incident __#2__
+## The Symptoms
 
 ^
-- second incident
-  |- nomad bankruptcy
+The symptoms were quite interesting, we initially got paged for the nomad job queue starting to rise quickly - despite us having plenty of capacity to run user jobs. And all of the nomad clients and servers appeared to be up, servicing requests, and generally being healthy by our metrics.
 
 ---
 
-- more exploration of the data
-  |- lots of failed job deletions
-  |- high dead job counts
-  |- would try to delete the same job ~70 times
-
----
-
-- noticed it was happening in garbage collection
-  |- reduced gc duration
-  |- saw that things were generally better
-  |- system would still stop scheduling for ~30s - 1min every gc cycle
-
----
-
-- packaging nomad
-
----
-
-## Incident __#3__
+# 😕
 
 ^
-- third incident
-  |- nomad-gc
+We were confused by this, because we were definitely no where near our peak load, but as we looked deeper, we saw that the nodes were simply not receiving jobs any more.
+So we started to take a look into the nomad-server containers, and saw that almost all of their logging had stopped, outside of a significant number of `failed to delete job` logs.
+In an attempt to unwedge the hosts, we started cycling nomad-server pods, while being careful to maintain quorum, and this allowed some amount of jobs to pass through.
 
 ---
 
-- stable for several months
+## Declaring Bankruptcy
+
+^
+Eventually we made a tough call - it was approaching the time of day when our load was about to significantly increase, so we turned off our build scheduler, and allowed the running builds to drain. We then dropped the nomad database, and bought up the cluster with completely fresh state.
+
+---
+
+## Follow up
+
+^
+When we were re-analyzing the nomad configuration and source code after we'd recovered, we noticed that we were missing some options that would give us greater visibility into the operations of its internal state machine, so we quickly enabled them, so we could get more data the next time the incident occured.
+As it turned out, we wouldn't have to wait long...
+
+---
+
+## The next day
+
+![120%](/Users/danielle/Desktop/Screen Shot 2018-04-30 at 13.25.40.png)
+
+^
+The next day we were once again greeted by a rising job queue, but this time, we had the metrics we needed to identify the issue. We were quick to declare bankruptcy after validating we had the data we needed, and doing some manual inspection of the running state.
+
+---
+
+## Analysis
+
+^
+When analyzing the data we'd collected, we eventually realized that the issue was occuring during garbage collection, where nomad will cycle through its completed jobs, and remove them from the database.
+
+---
+
+## Tuning garbage collection
+
+^
+We initially tried reducing the cooldown for GC from the default 4 hours, down to about 30 minutes, which resulted in much more stable behaviour. However it wasn't quite perfect, around our peak times, scheduling would halt for a a few seconds every gc cycle, which was just slow enough to trip our pending jobs alerts.
+We continued to investigate the design of the nomad garbage collector, and eventually noticed something interesting in the logs - it was trying to delete some jobs more than 70 times.
+
+---
+
+## `nomad-gc`
+
+^
+Eventually we found that we couldn't configure the garbage collector in a way that would work for our usage pattern, and that we'd need to work with the nomad team to find an adjust the design of the collector.
+Because we only really use the nomad api to inspect jobs that have failed, or during incidents, we don't really need to keep jobs in a successful terminal state around, so we wrote a small sidecar service that uses the nomad api to continuously collect successful dead jobs, and we use the built in collector as a failsafe and collector for allocations and evaluations.
+This has resulted in signficiantly more stable operation and was signficiantly easier to deploy through our usage of kubernetes to orchestrate nomad.
+
+---
+
+## Multi-Cluster
+
+^
+At around the same time, we went from running a single nomad cluster, to running multiple clusters. This changed a little bit of how we deploy them to kubernetes. 
+
+---
+
+## Service Discovery
+
+^
+I already mentioned that when we moved to multiple clusters we migrated to using kubernetes for service discovery
+
+---
+
+## Namespaces!
+
+^
+Part of doing this was using a k8s namespace for each individual deployment, which allows us to group all of the related resources, simplifies the deployment structure, and allows us to use k8s dns to reference all of the related resources pretty simply.
+
+---
+
+## 💜 Helm
+
+^
+We actually package the entire deployment, alongside the gc, drainer, metrics generator, etc into a single helm package. This has been really useful for both sharing configuration, and making it easy to deploy and upgrade clusters not only when we have a working platform for CD, but also if CircleCI is down and we need to manually bootstrap a new cluster.
+
+---
+
+## Terraform
+
+^
+We also use terraform to provision all of our virtualized infrastructure, including the hosts we use for nomad-servers, and the nomad-client autoscaling groups and IAM credentials. We abstract much of the repeated infrastrucutre into modules, to simplify the deployment and configuration of new clusters.
+This makes deploying a new cluster as easy as terraforming the server nodes, installing our helm package to reference the correct cluster, and terraforming the clients.
+
+---
+
+# 🦄
+
+^
+So in summary, kubernetes, helm, and terraform have made it sigificantly easier to orchestrate our build system, and I'm personally really happy with the power and control they've given us over that, and the ways that they've given us to handle our clusters - and also with Nomad, which is continually improving and becoming easier to operate, while still being incredibly fast at scheduling our customers workloads.
 
 ---
 
 ## __thank you__.
+
 ### @dantoml
 
