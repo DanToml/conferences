@@ -85,45 +85,42 @@ We had a couple of key components to think about when we started down the road t
 ## Build Infrastructure
 
 ^
-To many engineers, running other people's code on your infrastructure, and on the same servers as other untrusted code is terrifying - and it is.
-Because of this, we have to bake isolation into everything we build, and we have to do it from the beginning.
+Running other people's code on your infrastructure, and on the same servers as other untrusted code is terrifying - and for good reason.
+Because of this, we have to bake isolation into everything we build, and we have to do it from the beginning. Security is not something you can think about after the fact.
 There were only a few ways we could do isolation in a _reasonably_ safe way, and the one we picked for CircleCI 1 was LXC.
-On 2.0, alongside wanting to support containerized builds, we also wanted to be able to better support builds in alternative environments, such as full linux or macOS vms, for supporting things like privalliged docker and container building.
 
 ---
 
-### Build Infrastructure
-## LXC and Pluggability
+## LXC
+![](https://media2.giphy.com/media/11uHTWoncYKlgY/giphy.gif)
 
 ^
 Over the years, we’ve become pretty adept at managing the nuances of LXC and its tools — we know what output they generate, and we understand the edge cases. The platform team wanted to capitalize on that expertise by picking a tool that shared many of these qualities.
-We also didn't want to necessarily be tied in to any given technology or abstraction for this however, because we don't just schedule builds inside containers - We also provide support for running full linux or macOS virtual machines.
+On 2.0, alongside wanting to support containerized builds, we also had to offer first class support for alternative environments, such as full linux and macOS virtual machines. For building software that needs more resources, publishing containers, or testing iPhone apps.
 
 ---
 
-### Build Infrastructure
-## Fast Scheduling
+## Scheduling
 
 ^
-At our peak we push thousands of jobs per minute, and although it's rarely the bottleneck of our critical patch, many schedulers cannot handle running large volumes of short lived batch jobs.
+At our peak we push thousands of jobs per minute, and many schedulers cannot handle running large volumes of short lived batch jobs.
 
 ^
 Many job schedulers that are primarily designed for running services or long running processing tasks tend to have fairly slow schedulers that optimise for finding the optimal placement for a given task, usually by trying to find the best fit from a large pool of the available placement nodes. These types of scheduling algorithms tend to become quite slow when scheduling a large number of tasks on a large cluster of worker nodes.
 
 ---
 
-### Build Infrastructure
 ## Operational Simplicity
 
 ^
-We also ship an on-premise product - so any third party tool we ship as part of our product needs to be easy to operate by people who don't necessarily do this full time, with good documentation, and easy scriptability.
+CircleCI isn't just a SaaS product, we also offer an on premise deployment option. This means that any tool that we deploy as part of our product needs to be operable by people who are not necessarily domain experts, and offer the power to automate away most of the rough edges, and means that we are sometiems more sensitive to manual operational overhead than many organisations.
 
 ---
 
 ## Service orchestration 
 
 ^
-We also wanted a great platform to run the services that compose our product features and allow us to scale out beyond the single instance that was the development incarnation of 2.0.
+At the same time, we were also looking for a platform that would enable us to run our product services and infrastructure, that would allow us to scale out beyond our development instance of 2.0, and support us for the considerable future.
 
 ^
 Our initial search landed us with two main options, Mesos and Nomad. 
@@ -157,8 +154,8 @@ We already use a bunch of the Hashicorp stack, provisioning our infrastructure w
 
 ---
 
-### Nomad
-## Great at batch jobs
+## Fast Scheduling
+![](https://media2.giphy.com/media/XfyroVlIQFz0Y/giphy.gif)
 
 ^
 Unlike many orchestrators, nomad can choose between multiple scheduling algorithms, and for batch jobs uses an algorithm based on the Berkley Sparrow scheduler, that applies the power of two choices load balancing technique to job scheduling. This results in a job scheduler that is incredibly fast.
@@ -169,7 +166,7 @@ Unlike many orchestrators, nomad can choose between multiple scheduling algorith
 ## Pluggable
 
 ^
-Nomad's executor is also quite pluggable, with built in support for running various container technologies, or simply executing a binary in place, allowing us to precisely control how we execute our customer jobs - this is an incredibly useful facility for us.
+Nomad's executor is also quite pluggable, with built in support for running various container technologies, or simply executing a binary in place, allowing us to precisely control how we execute our customer jobs - this is an incredibly useful facility for us as we expand our feature set to offer more advanced container features.
 
 ---
 
@@ -177,7 +174,7 @@ Nomad's executor is also quite pluggable, with built in support for running vari
 ## Cooperative API
 
 ^
-It also exposes much of its functionality and state through a rest and rpc api. This is both great for building out our scheduling capabilities, but also really useful for building out tools on top and around nomad to augment its capabilities with our own needs, when things would not necessarily be suitable for upstreaming.
+Nomad also exposes much of its functionality and state through a rest and rpc api. This is great for building out our scheduling capabilities. And is also really useful for providing tools on top of nomad when we want to extend its capabilities, or to automate away most of its operation.
 
 ---
 
@@ -196,15 +193,14 @@ It's also still rapidly evolving, with many ops changes coming that allow us to 
 ^
 That being said, this youthfullness came with some problems with our initial prototypes, whereby there were various stability and operational issues that would force us to ssh in and restart the server process, because things would be wedged, or somewhat randomly failing.
 
-^
-Because of our desire for strong isolation for builds and internal services however, this lead us to an interesting realisation - we didn't need to use the same tool for both our job execution and our internal infrastructure.
 
 ---
 
 ## One size doesn't fit all?
 
 ^
-We realised that we could use other tools to run our services and infrastructure, to leverage those tools, without tying us in to any particular toolset over time, and to allow us to fix our issues and concerns. So we started looking into other orchestrators - we still didn't want to operationalise Mesos, and eventually we settled on Kubernetes.
+Because of our desire for strong isolation for builds and internal services however, this lead us to an interesting realisation - we didn't need to use the same tool for both our job execution and our internal infrastructure.
+This would allow us to leverage those tools, without tying us in to any particular toolset over time, and to allow us to fix our issues and concerns. So we started looking into other orchestrators - we still didn't want to operationalise Mesos, and eventually we decided on Kubernetes.
 
 ---
 
@@ -239,10 +235,19 @@ And in the case of running a stateful service like nomad, it also allows you to 
 
 ---
 
+### Kubernetes
+## Extensibility
+
+^
+Kubernetes strikes a nice balance of giving you a lot of valuable functionality with reasonable defaults somewhat out of the box, while allowing you to replace most of the components without having to reinvent your entire architecture, which is really nice when you are spinning up a new piece of infrastructure.
+
+---
+
 ## Nomad is __part__ of our product
 
 ^
-We ultimately made an important distinction - Nomad is part of our product. It is an important part of running builds in 2.0, and it ships to both our on-premise product and in our SaaS offering. It's where the majority of our builds execute, and gives us much of the flexibility we need to do that and build out new functionality.
+We ultimately made an important distinction - Nomad is part of our product.
+It is where we run builds, and it ships as part of our on premise product, as well as in our SaaS offering.
 
 ---
 
@@ -253,16 +258,15 @@ Kubernetes is the platform that we use to build out and to operationalize our pr
 
 ---
 
-## So how does this work?
+![](https://media1.giphy.com/media/2jHK3VH5nCOXe/giphy.gif)
 
 ^
+And yes, we do run a scheduler inside a scheduler. In fact, there is even a meta scheduler running inside a scheduler, that schedules workloads on the other scheduler.
 So now we know the basic tools at our disposal, lets take a look at how we set this up, and explore some of the things that did not necessarily work so well for us and how we leveraged the tools to fix them.
 
 ---
 
-## scheduler
-## __inside__ 
-## a scheduler
+## What is nomad?
 
 ^
 From an operations perspective, nomad is comprised of two main components, the nomad server, which is the nomad control plane, and nomad-clients, which execute the jobs provided by the nomad server. We run the nomad servers with kubernetes, and the clients are external. And for us, a nomad deployment also has some auxiliary services that exist to integrate Nomad with the rest of our domain, monitoring, and some amount of ops automation.
@@ -343,11 +347,48 @@ This then reports to both statsd and the aws health checking, so that we can aut
 
 ---
 
-## What have we learnt?
+## Multi-Cluster
 
 ^
-I would like to start out by saying that nomad is a really great tool, and Alex and the nomad team are incredibly receptive to hearing about issues that you run into. They've worked on fixes for, or roadmapped features for many of the things that we've experienced, and are a super friendly crowd.
-Nomad is however still very young, and we've augmented lots of its more unfinished behaviour with kubernetes while we work on more long term fixes for some of the problems. 
+A few months ago, we also migrated to running inside multiple clusters, to both provide redundancy, and also to make it easier to canary new releases to Nomad and our surrounding tooling, without affecting all of our production workloads.
+We leveraged some really nice kubernetes and terraform features for this
+
+---
+
+## Terraform, terraform, terraform
+
+^
+We deploy almost all of our infrastructure using terraform, because it gives us great visibility into changes to our deployment, and allows us to reason about and easily change our configuration.
+One of the first steps in migrating to a multi cluster deployment was to modularlise our terraform to allow us to easily create multiple downstream clusters with a minimal amount of duplication.
+
+---
+
+## Helm
+
+^
+We then migrated our kubernetes manifests to helm. We actually package the entire deployment, alongside the gc, drainer, metrics generator, etc into a single helm package. This makes it reasonably simple to be able to both CD changes, while also being able to manually deploy a cluster if the platform is unavailable, or when working in a development cluster.
+
+---
+
+## Namespaces
+
+^
+We then deploy each cluster to its own namespace in kubernetes, which acts as a neat grouping mechanism for all of the related services, allows us to easily manage an individual cluster, and acts as a good isolation boundary for services that want to talk to nomad.
+
+---
+
+## Service Discovery
+
+^
+The use of kubernetes namespaces, alongside with a stateful set for kubernetes also makes it much easier to handle both auxillary services to discover their related nomad deployment, and also for nomad servers to discover each other via kubernetes, as they have determensitic DNS names provided by the stateful set, and after an initial connection, Serf takes over.
+
+---
+
+# 🌈🦄✨
+
+^
+As with all things computers though, it has not been entirely a magical land of rainbows, unicorns, and sparkles. We've definitely experienced some rough edges of kubernetes, such as trying to fake taints and tolerations in older versions of kubernetes, and also some rough edges of nomad.
+That being said, we've been able to overcome and work around them - and in the later case, kubernetes has been super valuable for that.
 
 ---
 
@@ -418,12 +459,12 @@ for _, job := range gcJob {
 ```
 
 ^
-The original implementation of garbage collection in Nomad would iterate over every job that needed to be garbage collected, and issued a JobDeregister request, which would take a slot in the raft log, which would need to be applied to the finite state machine.
-Each of these requests would then call out to the current nomad leader, and block until the deletion had been applied. Which was not ideal when several hundred thousand jobs would need to be deregistered at once.
+The original implementation of garbage collection in Nomad would iterate over every job that needed to be garbage collected, and issued a JobDeregister request, which would take a slot in the raft translaction log, which would then need to be applied to the finite state machine.
+Each of these requests would then call out to the current nomad leader, and block until the deletion had been applied. Which was not ideal when several hundred thousand jobs would need to be deregistered at once, and when multiple nodes may be issuing the gc commands.
 
 ---
 
-## Tuning garbage collection
+# 🔄
 
 ^
 We initially tried reducing the cooldown for GC from the default 4 hours, down to about 30 minutes, which resulted in much more stable behaviour. However it wasn't quite perfect, around our peak times, scheduling would halt for a a few seconds every gc cycle, which was just slow enough to trip our pending jobs alerts.
@@ -441,43 +482,10 @@ This has resulted in signficiantly more stable operation and was signficiantly e
 ## Nomad 0.8
 
 ^
-The latest version of nomad now actually uses a batched deletion request which should drastically improve performance under these types of workloads, and I'm excited to begin testing that soon.
-
----
-
-## Multi-Cluster
+The latest version of nomad now actually batches deletion requests, which should see much better performance in this type of usage environment, and should allow us to archive our garbage collector. It also introduces a new API for draining nodes and controlling the way that jobs would migrate to a new instance, which allows us to delete our fork. 
 
 ^
-At around the same time, we went from running a single nomad cluster, to running multiple clusters. This changed a little bit of how we deploy them, and how we integrate with kubernetes. 
-
----
-
-## Terraform, terraform, terraform
-
-^
-We deploy almost all of our infrastructure using terraform, because it gives us great visibility into changes to our deployment, and allows us to reason about and easily change our configuration.
-One of the first steps in migrating to a multi cluster deployment was to modularlise our terraform to allow us to easily create multiple downstream clusters with a minimal amount of duplication.
-
----
-
-## 💜 Helm
-
-^
-We then migrated our kubernetes manifests to helm. We actually package the entire deployment, alongside the gc, drainer, metrics generator, etc into a single helm package. This makes it reasonably simple to be able to both CD changes, while also being able to manually deploy a cluster if the platform is unavailable, or when working in a development cluster.
-
----
-
-## Namespaces
-
-^
-We then deploy each cluster to its own namespace in kubernetes, which acts as a neat grouping mechanism for all of the related services, allows us to easily manage an individual cluster, and acts as a good isolation boundary for services that want to talk to nomad.
-
----
-
-## Service Discovery
-
-^
-The use of kubernetes namespaces, alongside with a stateful set for kubernetes also makes it much easier to handle both auxillary services to discover their related nomad deployment, and also for nomad servers to discover each other via kubernetes, as they have determensitic DNS names provided by the stateful set, and after an initial connection, Serf takes over.
+It's super exciting to see these types of changes coming to nomad as part of their autopilot feature set, and I'm excited for its future.
 
 ---
 
@@ -488,7 +496,11 @@ So in summary, kubernetes, helm, and terraform have made it sigificantly easier 
 
 ---
 
+![](https://media1.giphy.com/media/B2vBunhgt9Pc4/giphy.gif)
 ## __thank you__.
 
 ### @dantoml
 
+
+^
+I'm happy to take questions if there is time - but everyone is more than welcome to come chat with me if you see me around over the rest of the conference.
